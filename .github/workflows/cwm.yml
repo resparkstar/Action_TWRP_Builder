@@ -1,0 +1,192 @@
+name: Recovery Build (CWM Recovery)
+permissions:
+  contents: write
+on:
+  workflow_dispatch:
+    inputs:
+      MANIFEST_URL:
+        description: 'MANIFEST_URL'
+        required: true
+        default: 'https://github.com/CyanogenMod/android'
+      MANIFEST_BRANCH:
+        description: 'MANIFEST_BRANCH'
+        required: true
+        default: 'cm-11.0'
+      IMG_URL:
+        description: 'IMG_URL (leave blank if u choose to clone dt)'
+        required: false
+        default: ''
+      DEVICE_TREE_URL:
+        description: 'DEVICE_TREE_URL (leave blank if u choose to generate dt)'
+        required: false
+        default: ''
+      DEVICE_TREE_BRANCH:
+        description: 'DEVICE_TREE_BRANCH'
+        required: false
+        default: 'twrp-4.4'
+      COMMON_TREE_URL:
+        description: 'COMMON_TREE_URL (if no common tree, leave blank)'
+        required: false
+      COMMON_PATH:
+        description: 'COMMON_PATH (if no common tree, leave blank)'
+        required: false
+      DEVICE_MANUFACTURER:
+        description: 'DEVICE_MANUFACTURER'
+        required: true
+        default: 'philips'
+      DEVICE_NAME:
+        description: 'DEVICE_NAME'
+        required: true
+        default: 'E517'
+      MAKEFILE_NAME:
+        description: 'MAKEFILE_NAME'
+        required: true
+        default: 'cm_'
+
+jobs:
+  build:
+    if: github.event.repository.owner.id == github.event.sender.id
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/catthehacker/ubuntu:runner-18.04
+      volumes:
+        - /:/host_root
+    env:
+      LC_ALL: "C.UTF-8"
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+    steps:
+    - name: Display Run Parameters
+      run: |
+        echo "::group::User Environment Variables"
+        echo "Manifest URL: ${{ github.event.inputs.MANIFEST_URL }}"
+        echo "Manifest Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}"
+        echo "Image URL: ${{ github.event.inputs.IMG_URL }}"
+        echo "Device Tree URL: ${{ github.event.inputs.DEVICE_TREE_URL }}"
+        echo "Device Tree Branch: ${{ github.event.inputs.DEVICE_TREE_BRANCH }}"
+        echo "Device Manufacturer: ${{ github.event.inputs.DEVICE_MANUFACTURER }}"
+        echo "Device Name: ${{ github.event.inputs.DEVICE_NAME }}"
+        echo "Makefile Name: ${{ github.event.inputs.MAKEFILE_NAME }}"
+        echo "::endgroup::"
+ 
+    - name: Check Out
+      uses: actions/checkout@v3
+
+    # Cleanup The Actions Workspace Using Custom Composite Run Actions
+    - name: Clean up
+      run: | 
+        sudo cp scripts/cleanup.sh /host_root/root
+        sudo chroot /host_root /root/cleanup.sh
+      # That's it! Now use your normal steps
+
+    - name: Prepare the environment
+      run: |
+        sudo apt update
+        sudo apt -y upgrade
+        sudo apt install -yq bc bison build-essential curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python bash cpio
+
+    - name: Install Java
+      run: |
+        wget https://repo.huaweicloud.com/java/jdk/7u80-b15/jdk-7u80-linux-x64.tar.gz -O 1.tar.gz
+        tar -xvzf 1.tar.gz -C /github/home
+        echo "PATH=/github/home/jdk1.7.0_80/bin:$PATH" >> "$GITHUB_ENV"
+
+#        wget https://download.java.net/openjdk/jdk7u75/ri/jdk_ri-7u75-b13-linux-x64-18_dec_2014.tar.gz -O 1.tar.gz
+#        echo "PATH=/github/home/java-se-7u75-ri/bin:$PATH" >> "$GITHUB_ENV"
+#      uses: actions/setup-java@v1.4.4
+#      with:
+#        java-version: 1.7
+
+    - name: Install repo
+      run: |
+        sudo ln -sf /usr/bin/python3 /usr/bin/python
+        mkdir ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod a+x ~/bin/repo
+        sudo ln -sf ~/bin/repo /usr/bin/repo
+      
+    - name: Initialize repo
+      run: |
+        mkdir workspace
+        cd workspace
+        echo "workspace-folder=$(pwd)" >> $GITHUB_OUTPUT
+        git config --global user.name "azwhikaru"
+        git config --global user.email "azwhikaru+37921907@github.com"
+        repo init --depth=1 -u ${{ github.event.inputs.MANIFEST_URL }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
+      id: pwd
+          
+    - name: Repo Sync
+      run: |
+        repo sync -j$(nproc --all) --force-sync
+      working-directory: workspace
+
+    - name: Clone device tree
+      if: inputs.DEVICE_TREE_URL != null
+      run: git clone ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./device/${{ inputs.DEVICE_MANUFACTURER }}/${{ inputs.DEVICE_NAME }}
+      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
+
+    - name: Clone common tree
+      if: |
+        github.event.inputs.COMMON_TREE_URL != null
+        && github.event.inputs.COMMON_PATH != null
+      run: |
+        git clone ${{ github.event.inputs.COMMON_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.COMMON_PATH }}
+      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
+      continue-on-error: true
+
+    - name: Sync Device Dependencies
+      run: |
+        bash ${GITHUB_WORKSPACE}/scripts/convert.sh ${{ github.event.inputs.DEVICE_PATH }}/${{ steps.buildtree.outputs.value }}.dependencies
+        repo sync -j$(nproc --all)
+      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
+      continue-on-error: true
+
+#    - name: Set Swap Space
+#      uses: pierotofy/set-swap-space@master
+#      with:
+#        swap-size-gb: 12
+
+    - name: Switch to Python2
+      run: |
+        sudo rm -f /usr/bin/python /usr/bin/python3.6 /usr/bin/python3.6m /usr/local/bin/python
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python
+    
+    - name: Make device tree
+      if: inputs.IMG_URL != null
+      run: |
+        make -j$(nproc --all) otatools
+        export PATH=$(pwd)/out/host/linux-x86/bin:$PATH
+        wget ${{ inputs.IMG_URL }} -O ./1.img
+        build/tools/device/mkvendor.sh ${{ inputs.DEVICE_MANUFACTURER }} ${{ inputs.DEVICE_NAME }} ./1.img
+      working-directory: workspace
+
+    - name: Building recovery
+      shell: bash
+      run: |
+        source build/envsetup.sh
+        export ALLOW_MISSING_DEPENDENCIES=true
+        lunch ${{ inputs.MAKEFILE_NAME }}-eng
+        make clean
+        make recoveryimage -j$(nproc --all)
+      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
+
+    - name: Debug
+      uses: mxschmitt/action-tmate@v3.13
+      if: ${{ failure() }}
+
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: | 
+          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery.img
+          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.zip
+          workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*vendor*.img
+          /github/home/*.zip
+        name: ${{ github.event.inputs.DEVICE_NAME }}-${{ github.run_id }}
+        tag_name: ${{ github.run_id }}
+        body: |
+          Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
+          Device: ${{ github.event.inputs.DEVICE_NAME }}
+          Device tree & Branch: ${{ github.event.inputs.DEVICE_TREE_URL }} - ${{ github.event.inputs.DEVICE_TREE_BRANCH }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
