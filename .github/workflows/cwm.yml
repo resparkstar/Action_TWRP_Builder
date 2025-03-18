@@ -11,15 +11,15 @@ on:
       MANIFEST_BRANCH:
         description: 'MANIFEST_BRANCH'
         required: true
-        default: 'cm-11.0'
+        default: 'cm-14.1'
       IMG_URL:
         description: 'IMG_URL (leave blank if u choose to clone dt)'
         required: false
         default: ''
       DEVICE_TREE_URL:
         description: 'DEVICE_TREE_URL (leave blank if u choose to generate dt)'
-        required: false
-        default: ''
+        required: true
+        default: 'https://github.com/resparkstar/twrp_device_meizu_m1note'
       DEVICE_TREE_BRANCH:
         description: 'DEVICE_TREE_BRANCH'
         required: false
@@ -33,11 +33,11 @@ on:
       DEVICE_MANUFACTURER:
         description: 'DEVICE_MANUFACTURER'
         required: true
-        default: 'philips'
+        default: 'meizu'
       DEVICE_NAME:
         description: 'DEVICE_NAME'
         required: true
-        default: 'E517'
+        default: 'm1note'
       MAKEFILE_NAME:
         description: 'MAKEFILE_NAME'
         required: true
