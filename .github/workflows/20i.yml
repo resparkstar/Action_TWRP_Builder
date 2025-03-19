@@ -146,7 +146,7 @@ jobs:
 
     - name: Building recovery
       run: |
-        cd /home/runner/work
+        cd /home/runner/work/Action_TWRP_Builder/Action_TWRP_Builder/workspace
         ls
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
